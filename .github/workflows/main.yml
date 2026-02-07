@@ -2,6 +2,11 @@ name: DEVXRDP – Ultimate Persistent + Double Lock
 
 on:
   workflow_dispatch:
+    inputs:
+      ts_authkey:
+        description: "Tailscale Auth Key"
+        required: true
+        type: string
 
 jobs:
   rdp:
@@ -37,7 +42,7 @@ jobs:
             C:\PersistentData
           key: devxrdp-shared
 
-      # ---------------- CREATE LOCK SCRIPT (FIXED) ----------------
+      # ---------------- CREATE LOCK SCRIPT ----------------
       - name: Create DEVXRDP Lock Script
         shell: powershell
         env:
@@ -71,14 +76,14 @@ jobs:
             -RunLevel Highest `
             -Force
 
-      # ---------------- TAILSCALE ----------------
+      # ---------------- TAILSCALE (INPUT BASED) ----------------
       - name: Install & Start Tailscale
         shell: powershell
         run: |
           Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi -OutFile "$env:TEMP\tailscale.msi"
           Start-Process msiexec.exe -Wait -ArgumentList "/i","$env:TEMP\tailscale.msi","/quiet"
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-            --authkey "${{ secrets.TS_AUTHKEY }}" `
+            --authkey "${{ inputs.ts_authkey }}" `
             --hostname "DEVXRDP"
 
       # ---------------- ENABLE RDP ----------------
@@ -93,9 +98,11 @@ jobs:
         shell: powershell
         run: |
           $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
+          Write-Host "=============================="
           Write-Host "RDP READY"
           Write-Host "IP: $ip"
           Write-Host "User: DEVXRDP"
+          Write-Host "=============================="
 
           try {
             Start-Sleep -Seconds 18000
