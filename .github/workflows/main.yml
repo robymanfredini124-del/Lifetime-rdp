@@ -1,4 +1,4 @@
-name: DEVXRDP – Ultimate Persistent + Double Lock
+name: DEVXRDP – Persistent + Lock (Classic Style)
 
 on:
   workflow_dispatch:
@@ -16,15 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---------------- USER + DIRS ----------------
-      - name: Create User & Persistent Folders
+      # ---------------- USER + DIRS (OLD STYLE) ----------------
+      - name: Pre-Create User & Directories
         shell: powershell
         run: |
-          $sec = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
-
-          if (-not (Get-LocalUser DEVXRDP -ErrorAction SilentlyContinue)) {
-            New-LocalUser DEVXRDP -Password $sec -AccountNeverExpires
-            Add-LocalGroupMember Administrators DEVXRDP
+          $sec = ConvertTo-SecureString "Rdp!9Xq#2025" -AsPlainText -Force
+          if (-not (Get-LocalUser -Name "DEVXRDP" -ErrorAction SilentlyContinue)) {
+            New-LocalUser -Name "DEVXRDP" -Password $sec -AccountNeverExpires
+            Add-LocalGroupMember Administrators "DEVXRDP"
           }
 
           New-Item -Force -ItemType Directory -Path `
@@ -32,7 +31,7 @@ jobs:
             "C:\Users\DEVXRDP\Downloads",
             "C:\PersistentData"
 
-      # ---------------- RESTORE ----------------
+      # ---------------- RESTORE (CLONE) ----------------
       - name: Restore Previous RDP State
         uses: actions/cache/restore@v4
         with:
@@ -42,42 +41,31 @@ jobs:
             C:\PersistentData
           key: devxrdp-shared
 
-      # ---------------- CREATE LOCK SCRIPT ----------------
-      - name: Create DEVXRDP Lock Script
+      # ---------------- LOCK SCRIPT ----------------
+      - name: Create Lock Script
         shell: powershell
-        env:
-          LOCK_PASS: ${{ secrets.LOCK_PASSWORD }}
         run: |
-          $file = "C:\PersistentData\devxrdp_lock.ps1"
-
-          echo 'Add-Type -AssemblyName Microsoft.VisualBasic' > $file
-          echo '$correct = "$env:LOCK_PASS"' >> $file
-          echo 'while ($true) {' >> $file
-          echo '  $pwd = [Microsoft.VisualBasic.Interaction]::InputBox("Enter DEVXRDP Lock Password","DEVXRDP LOCK","")' >> $file
-          echo '  if ($pwd -eq $correct) { break }' >> $file
-          echo '}' >> $file
-          echo 'Stop-Process -Name explorer -Force' >> $file
-          echo 'Start-Process explorer.exe' >> $file
+          $f = "C:\PersistentData\lock.ps1"
+          echo 'Add-Type -AssemblyName Microsoft.VisualBasic' > $f
+          echo '$p="DEVXRDP"' >> $f
+          echo 'while($true){' >> $f
+          echo ' $i=[Microsoft.VisualBasic.Interaction]::InputBox("Enter DEVXRDP Lock Password","DEVXRDP LOCK","")' >> $f
+          echo ' if($i -eq $p){break}' >> $f
+          echo '}' >> $f
+          echo 'Stop-Process -Name explorer -Force' >> $f
+          echo 'Start-Process explorer.exe' >> $f
 
       # ---------------- AUTO LOCK ----------------
-      - name: Enable Auto Lock On Login
+      - name: Enable Lock on Login
         shell: powershell
         run: |
-          $action = New-ScheduledTaskAction `
-            -Execute "powershell.exe" `
-            -Argument "-ExecutionPolicy Bypass -File C:\PersistentData\devxrdp_lock.ps1"
+          $a = New-ScheduledTaskAction -Execute powershell.exe `
+            -Argument "-ExecutionPolicy Bypass -File C:\PersistentData\lock.ps1"
+          $t = New-ScheduledTaskTrigger -AtLogOn -User "DEVXRDP"
+          Register-ScheduledTask DEVXRDP_LOCK $a $t -RunLevel Highest -Force
 
-          $trigger = New-ScheduledTaskTrigger -AtLogOn -User "DEVXRDP"
-
-          Register-ScheduledTask `
-            -TaskName "DEVXRDP_LOCK" `
-            -Action $action `
-            -Trigger $trigger `
-            -RunLevel Highest `
-            -Force
-
-      # ---------------- TAILSCALE (INPUT BASED) ----------------
-      - name: Install & Start Tailscale
+      # ---------------- TAILSCALE (OLD STYLE) ----------------
+      - name: Start Tailscale
         shell: powershell
         run: |
           Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi -OutFile "$env:TEMP\tailscale.msi"
@@ -93,25 +81,23 @@ jobs:
           Set-ItemProperty HKLM:\System\CurrentControlSet\Control\TerminalServer fDenyTSConnections 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      # ---------------- KEEP SESSION ----------------
-      - name: RDP Active Session
+      # ---------------- ACTIVE ----------------
+      - name: RDP Active
         shell: powershell
         run: |
           $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
-          Write-Host "=============================="
-          Write-Host "RDP READY"
           Write-Host "IP: $ip"
           Write-Host "User: DEVXRDP"
-          Write-Host "=============================="
+          Write-Host "Pass: Rdp!9Xq#2025"
 
           try {
             Start-Sleep -Seconds 18000
           } finally {
-            Write-Host "Saving session..."
+            Write-Host "Saving state..."
           }
 
       # ---------------- SAVE ALWAYS ----------------
-      - name: Save RDP State (Always)
+      - name: Save State (Always)
         if: always()
         uses: actions/cache/save@v4
         with:
