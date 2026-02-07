@@ -1,0 +1,121 @@
+name: DEVXRDP – Ultimate Persistent + Double Lock
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 305
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------- USER + DIRS ----------------
+      - name: Create User & Persistent Folders
+        shell: powershell
+        run: |
+          $sec = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+
+          if (-not (Get-LocalUser DEVXRDP -ErrorAction SilentlyContinue)) {
+            New-LocalUser DEVXRDP -Password $sec -AccountNeverExpires
+            Add-LocalGroupMember Administrators DEVXRDP
+          }
+
+          New-Item -Force -ItemType Directory -Path `
+            "C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data",
+            "C:\Users\DEVXRDP\Downloads",
+            "C:\PersistentData"
+
+      # ---------------- RESTORE ----------------
+      - name: Restore Previous RDP State
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data
+            C:\Users\DEVXRDP\Downloads
+            C:\PersistentData
+          key: devxrdp-shared
+
+      # ---------------- LOCK SCRIPT ----------------
+      - name: Create DEVXRDP Lock Script
+        shell: powershell
+        run: |
+          $lock = @'
+Add-Type -AssemblyName PresentationFramework
+$correct = "${{ secrets.LOCK_PASSWORD }}"
+
+while ($true) {
+  $pwd = [Microsoft.VisualBasic.Interaction]::InputBox(
+    "Enter DEVXRDP Lock Password",
+    "DEVXRDP LOCK",
+    ""
+  )
+  if ($pwd -eq $correct) { break }
+}
+Stop-Process -Name explorer -Force
+Start-Process explorer.exe
+'@
+          Set-Content -Path "C:\PersistentData\devxrdp_lock.ps1" -Value $lock -Force
+
+      # ---------------- AUTO LOCK ON LOGIN ----------------
+      - name: Enable Auto Lock On Every Login
+        shell: powershell
+        run: |
+          $action = New-ScheduledTaskAction `
+            -Execute "powershell.exe" `
+            -Argument "-ExecutionPolicy Bypass -File C:\PersistentData\devxrdp_lock.ps1"
+
+          $trigger = New-ScheduledTaskTrigger -AtLogOn -User "DEVXRDP"
+
+          Register-ScheduledTask `
+            -TaskName "DEVXRDP_LOCK" `
+            -Action $action `
+            -Trigger $trigger `
+            -RunLevel Highest `
+            -Force
+
+      # ---------------- TAILSCALE ----------------
+      - name: Install & Start Tailscale
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi -OutFile "$env:TEMP\tailscale.msi"
+          Start-Process msiexec.exe -Wait -ArgumentList "/i","$env:TEMP\tailscale.msi","/quiet"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
+            --authkey "${{ secrets.TS_AUTHKEY }}" `
+            --hostname "DEVXRDP"
+
+      # ---------------- ENABLE RDP ----------------
+      - name: Enable RDP
+        shell: powershell
+        run: |
+          Set-ItemProperty HKLM:\System\CurrentControlSet\Control\TerminalServer fDenyTSConnections 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      # ---------------- KEEP SESSION ----------------
+      - name: RDP Active Session
+        shell: powershell
+        run: |
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
+          Write-Host "=============================="
+          Write-Host "RDP READY"
+          Write-Host "IP: $ip"
+          Write-Host "User: DEVXRDP"
+          Write-Host "=============================="
+
+          try {
+            Start-Sleep -Seconds 18000
+          } finally {
+            Write-Host "Saving session..."
+          }
+
+      # ---------------- SAVE ALWAYS ----------------
+      - name: Save RDP State (Always)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data
+            C:\Users\DEVXRDP\Downloads
+            C:\PersistentData
+          key: devxrdp-shared
