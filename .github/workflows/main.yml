@@ -37,29 +37,25 @@ jobs:
             C:\PersistentData
           key: devxrdp-shared
 
-      # ---------------- LOCK SCRIPT ----------------
+      # ---------------- CREATE LOCK SCRIPT (FIXED) ----------------
       - name: Create DEVXRDP Lock Script
         shell: powershell
+        env:
+          LOCK_PASS: ${{ secrets.LOCK_PASSWORD }}
         run: |
-          $lock = @'
-Add-Type -AssemblyName PresentationFramework
-$correct = "${{ secrets.LOCK_PASSWORD }}"
+          $file = "C:\PersistentData\devxrdp_lock.ps1"
 
-while ($true) {
-  $pwd = [Microsoft.VisualBasic.Interaction]::InputBox(
-    "Enter DEVXRDP Lock Password",
-    "DEVXRDP LOCK",
-    ""
-  )
-  if ($pwd -eq $correct) { break }
-}
-Stop-Process -Name explorer -Force
-Start-Process explorer.exe
-'@
-          Set-Content -Path "C:\PersistentData\devxrdp_lock.ps1" -Value $lock -Force
+          echo 'Add-Type -AssemblyName Microsoft.VisualBasic' > $file
+          echo '$correct = "$env:LOCK_PASS"' >> $file
+          echo 'while ($true) {' >> $file
+          echo '  $pwd = [Microsoft.VisualBasic.Interaction]::InputBox("Enter DEVXRDP Lock Password","DEVXRDP LOCK","")' >> $file
+          echo '  if ($pwd -eq $correct) { break }' >> $file
+          echo '}' >> $file
+          echo 'Stop-Process -Name explorer -Force' >> $file
+          echo 'Start-Process explorer.exe' >> $file
 
-      # ---------------- AUTO LOCK ON LOGIN ----------------
-      - name: Enable Auto Lock On Every Login
+      # ---------------- AUTO LOCK ----------------
+      - name: Enable Auto Lock On Login
         shell: powershell
         run: |
           $action = New-ScheduledTaskAction `
@@ -97,11 +93,9 @@ Start-Process explorer.exe
         shell: powershell
         run: |
           $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
-          Write-Host "=============================="
           Write-Host "RDP READY"
           Write-Host "IP: $ip"
           Write-Host "User: DEVXRDP"
-          Write-Host "=============================="
 
           try {
             Start-Sleep -Seconds 18000
