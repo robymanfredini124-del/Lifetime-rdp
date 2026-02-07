@@ -1,4 +1,4 @@
-name: DEVXRDP – Persistent + Lock (Classic Style)
+name: DEVXRDP – Clone + Lock (Final Stable)
 
 on:
   workflow_dispatch:
@@ -11,98 +11,100 @@ on:
 jobs:
   rdp:
     runs-on: windows-latest
-    timeout-minutes: 305
+    timeout-minutes: 300
 
     steps:
       - uses: actions/checkout@v4
 
-      # ---------------- USER + DIRS (OLD STYLE) ----------------
-      - name: Pre-Create User & Directories
+      # ================= USER (SAME AS OLD) =================
+      - name: Create DEVXRDP User
         shell: powershell
         run: |
-          $sec = ConvertTo-SecureString "Rdp!9Xq#2025" -AsPlainText -Force
-          if (-not (Get-LocalUser -Name "DEVXRDP" -ErrorAction SilentlyContinue)) {
-            New-LocalUser -Name "DEVXRDP" -Password $sec -AccountNeverExpires
-            Add-LocalGroupMember Administrators "DEVXRDP"
+          $pass = ConvertTo-SecureString "Rdp!9Xq#2025" -AsPlainText -Force
+          if (-not (Get-LocalUser DEVXRDP -ErrorAction SilentlyContinue)) {
+            New-LocalUser DEVXRDP -Password $pass -AccountNeverExpires
+            Add-LocalGroupMember Administrators DEVXRDP
           }
 
-          New-Item -Force -ItemType Directory -Path `
+      # ================= DIRECTORIES =================
+      - name: Prepare Persistent Paths
+        shell: powershell
+        run: |
+          New-Item -Force -ItemType Directory `
+            "C:\PersistentData",
             "C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data",
-            "C:\Users\DEVXRDP\Downloads",
-            "C:\PersistentData"
+            "C:\Users\DEVXRDP\Downloads"
 
-      # ---------------- RESTORE (CLONE) ----------------
-      - name: Restore Previous RDP State
+      # ================= RESTORE CLONE =================
+      - name: Restore Clone Data
         uses: actions/cache/restore@v4
         with:
           path: |
+            C:\PersistentData
             C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data
             C:\Users\DEVXRDP\Downloads
-            C:\PersistentData
-          key: devxrdp-shared
+          key: devxrdp-clone
 
-      # ---------------- LOCK SCRIPT ----------------
+      # ================= LOCK SCRIPT =================
       - name: Create Lock Script
         shell: powershell
         run: |
-          $f = "C:\PersistentData\lock.ps1"
-          echo 'Add-Type -AssemblyName Microsoft.VisualBasic' > $f
-          echo '$p="DEVXRDP"' >> $f
-          echo 'while($true){' >> $f
-          echo ' $i=[Microsoft.VisualBasic.Interaction]::InputBox("Enter DEVXRDP Lock Password","DEVXRDP LOCK","")' >> $f
-          echo ' if($i -eq $p){break}' >> $f
-          echo '}' >> $f
-          echo 'Stop-Process -Name explorer -Force' >> $f
-          echo 'Start-Process explorer.exe' >> $f
+          $lock = "C:\PersistentData\lock.ps1"
+          @'
+Add-Type -AssemblyName Microsoft.VisualBasic
+$correct = "DEVXKINGRDP"
+do {
+  $input = [Microsoft.VisualBasic.Interaction]::InputBox(
+    "Enter DEVXRDP Lock Password",
+    "DEVXRDP LOCK",
+    ""
+  )
+} until ($input -eq $correct)
+'@ | Set-Content $lock
 
-      # ---------------- AUTO LOCK ----------------
-      - name: Enable Lock on Login
+      # ================= SCHEDULE LOCK =================
+      - name: Enable Lock On Login
         shell: powershell
         run: |
-          $a = New-ScheduledTaskAction -Execute powershell.exe `
-            -Argument "-ExecutionPolicy Bypass -File C:\PersistentData\lock.ps1"
-          $t = New-ScheduledTaskTrigger -AtLogOn -User "DEVXRDP"
-          Register-ScheduledTask DEVXRDP_LOCK $a $t -RunLevel Highest -Force
+          $action  = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-ExecutionPolicy Bypass -File C:\PersistentData\lock.ps1"
+          $trigger = New-ScheduledTaskTrigger -AtLogOn -User "DEVXRDP"
+          Register-ScheduledTask -TaskName "DEVXRDP_LOCK" -Action $action -Trigger $trigger -RunLevel Highest -Force
 
-      # ---------------- TAILSCALE (OLD STYLE) ----------------
-      - name: Start Tailscale
+      # ================= TAILSCALE =================
+      - name: Install & Start Tailscale
         shell: powershell
         run: |
-          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi -OutFile "$env:TEMP\tailscale.msi"
-          Start-Process msiexec.exe -Wait -ArgumentList "/i","$env:TEMP\tailscale.msi","/quiet"
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
-            --authkey "${{ inputs.ts_authkey }}" `
-            --hostname "DEVXRDP"
+          Invoke-WebRequest https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi -OutFile tailscale.msi
+          Start-Process msiexec.exe -Wait -ArgumentList "/i tailscale.msi /quiet"
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey "${{ inputs.ts_authkey }}" --hostname DEVXRDP
 
-      # ---------------- ENABLE RDP ----------------
+      # ================= ENABLE RDP =================
       - name: Enable RDP
         shell: powershell
         run: |
-          Set-ItemProperty HKLM:\System\CurrentControlSet\Control\TerminalServer fDenyTSConnections 0
+          Set-ItemProperty "HKLM:\System\CurrentControlSet\Control\Terminal Server" fDenyTSConnections 0
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-      # ---------------- ACTIVE ----------------
-      - name: RDP Active
+      # ================= SESSION =================
+      - name: RDP Ready
         shell: powershell
         run: |
-          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
+          $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4 | Select-Object -First 1
+          Write-Host "========================"
           Write-Host "IP: $ip"
-          Write-Host "User: DEVXRDP"
-          Write-Host "Pass: Rdp!9Xq#2025"
+          Write-Host "USER: DEVXRDP"
+          Write-Host "PASS: Rdp!9Xq#2025"
+          Write-Host "LOCK: DEVXKINGRDP"
+          Write-Host "========================"
+          Start-Sleep -Seconds 18000
 
-          try {
-            Start-Sleep -Seconds 18000
-          } finally {
-            Write-Host "Saving state..."
-          }
-
-      # ---------------- SAVE ALWAYS ----------------
-      - name: Save State (Always)
+      # ================= SAVE CLONE =================
+      - name: Save Clone State
         if: always()
         uses: actions/cache/save@v4
         with:
           path: |
+            C:\PersistentData
             C:\Users\DEVXRDP\AppData\Local\Google\Chrome\User Data
             C:\Users\DEVXRDP\Downloads
-            C:\PersistentData
-          key: devxrdp-shared
+          key: devxrdp-clone
